@@ -7,7 +7,7 @@ All tools are interactive command-line programs. Run `python scripts/<name>.py
 
 **Question:** Which selected VerseVAD measurements vary together across works?
 
-**Input:** A corpus Complete Audit ZIP or standalone `corpus_vad_metrics.csv`.
+**Input:** A Corpus / Research Project Complete Audit ZIP.
 
 **Choices:** One lexical scope/weighting profile, explicit metric pairs,
 coverage threshold, bootstrap count, optional Pearson sensitivity, optional
@@ -44,7 +44,7 @@ jackknife diagnostics.
 
 **Question:** How much do measurements move when reasonable choices change?
 
-**Input:** A corpus Complete Audit or standalone corpus VAD metrics table.
+**Input:** A Corpus / Research Project Complete Audit ZIP.
 
 **Choices:** Constructs, resources, scope/weight profiles, coverage threshold,
 common-set versus available/pairwise alignment, selected poems, and output depth.
@@ -63,7 +63,8 @@ movement is comparable across unrelated scales.
 
 **Question:** Which works are unusual in a selected corpus, and in what ways?
 
-**Input:** A corpus audit. Lexical modes use `corpus_vad_metrics.csv`; broader
+**Input:** A Corpus / Research Project Complete Audit ZIP. Lexical modes use the
+canonical Master Metrics records; broader
 module mode uses `corpus_module_metrics.csv` when present.
 
 **Choices:** Evidence layer, profile, mode, metrics/directions, percentile
@@ -103,7 +104,8 @@ It never pools all corpus tokens to give long works extra corpus weight.
 **Question:** How can a large single-poem Complete Audit become a coherent,
 auditable computational close-reading package?
 
-**Input:** A single-poem audit-schema-v2 Complete Audit ZIP.
+**Input:** A Single Poem Complete Audit ZIP. New schema-v3 and compatible legacy
+single-poem audits are supported through the shared reader/adapter layer.
 
 **Choices:** Primary profile and VAD source, sensitivity variants, rolling
 window settings, influence analysis, and contributor depth. `--quick` uses

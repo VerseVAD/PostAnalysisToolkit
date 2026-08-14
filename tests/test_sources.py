@@ -24,9 +24,9 @@ class SourceDiscoveryTests(unittest.TestCase):
                 archive.writestr("notes.txt", "not an audit")
             (root / "broken.zip").write_bytes(b"not a zip")
 
-            self.assertEqual(len(discover_files(root)), 5)
+            self.assertEqual(len(discover_files(root)), 3)
             compatible = discover_corpus_metric_sources(root, "corpus_vad_metrics.csv")
-            self.assertEqual([path.name for path in compatible], ["corpus_vad_metrics.csv", "valid.zip"])
+            self.assertEqual([path.name for path in compatible], ["valid.zip"])
 
 
 if __name__ == "__main__":

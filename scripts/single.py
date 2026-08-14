@@ -20,7 +20,7 @@ Core questions
 
 Expected input
 --------------
-A VerseVAD single-poem Complete Audit ZIP using audit schema v2. The script is
+A VerseVAD Single Poem Complete Audit ZIP. Export schema 3.0 is preferred; the script is
 schema-aware and skips optional analyses when their supporting files are absent.
 
 Primary outputs
@@ -86,6 +86,7 @@ except ImportError as exc:  # pragma: no cover
 
 from versevad_tools.cli import parse_index_selection
 from versevad_tools.core import configure_console_encoding
+from versevad_tools.audit import AuditSourceError, require_audit, resolve_member
 
 
 __version__ = "0.1.0"
@@ -226,7 +227,15 @@ class SinglePoemAudit:
                 self.names = set(zf.namelist())
         except zipfile.BadZipFile as exc:
             raise AuditError(f"Not a readable ZIP archive: {self.path}") from exc
-        missing = [x for x in REQUIRED_FILES if x not in self.names]
+        try:
+            self.descriptor = require_audit(
+                self.path,
+                expected_analysis_mode="single_poem",
+                require_complete=True,
+            )
+        except AuditSourceError as exc:
+            raise AuditError(str(exc)) from exc
+        missing = [x for x in REQUIRED_FILES if resolve_member(self.names, x) is None]
         if missing:
             raise AuditError(
                 "This does not look like a compatible VerseVAD single-poem Complete Audit.\n"
@@ -243,16 +252,22 @@ class SinglePoemAudit:
 
     @lru_cache(maxsize=128)
     def read_csv(self, name: str) -> pd.DataFrame:
-        if name not in self.names:
+        resolved = resolve_member(self.names, name)
+        if resolved is None:
             raise AuditError(f"Archive does not contain {name}")
         with zipfile.ZipFile(self.path) as zf:
-            with zf.open(name) as fh:
+            with zf.open(resolved) as fh:
                 return pd.read_csv(fh)
 
     def has(self, name: str) -> bool:
-        return name in self.names
+        return resolve_member(self.names, name) is not None
 
     def _detect_schema_version(self) -> Optional[int]:
+        if not self.descriptor.legacy:
+            try:
+                return int(float(self.descriptor.schema_version))
+            except ValueError:
+                return None
         manifest = "08_REPRODUCIBILITY/master_manifest.csv"
         if manifest not in self.names:
             return None
@@ -740,10 +755,13 @@ def discover_source_zips(script_path: Path) -> tuple[Path, list[Path]]:
             compatible = []
             for p in zips:
                 try:
-                    with zipfile.ZipFile(p) as zf:
-                        if "00_START_HERE/profile_comparison.csv" in zf.namelist() and "07_PROCESSING_AUDIT/source.csv" in zf.namelist():
-                            compatible.append(p)
-                except zipfile.BadZipFile:
+                    require_audit(
+                        p,
+                        expected_analysis_mode="single_poem",
+                        require_complete=True,
+                    )
+                    compatible.append(p)
+                except (zipfile.BadZipFile, AuditSourceError):
                     pass
             if compatible:
                 return root, compatible
@@ -1734,8 +1752,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     try:
         root, source = choose_source(args, script_path)
         audit = SinglePoemAudit(source)
-        if audit.schema_version not in {None, 2}:
-            print(f"Warning: this script was built against audit schema v2; archive reports v{audit.schema_version}.")
+        if audit.schema_version not in {None, 2, 3}:
+            print(
+                "Warning: this script supports VerseVAD export schemas 2 and 3; "
+                f"the archive reports v{audit.schema_version}."
+            )
         run_analysis(audit, root, args)
         return 0
     except (AuditError, KeyboardInterrupt) as exc:

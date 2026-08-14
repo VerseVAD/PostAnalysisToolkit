@@ -14,7 +14,7 @@ Designed to live beside ``versevad_reader.py`` inside::
             robustness.py
             compare.py
         source/
-            <2-5 VerseVAD Complete Audit ZIPs or compatible CSVs>
+            <2-5 VerseVAD Corpus / Research Project Complete Audit ZIPs>
         exports/
 
 Run with::
@@ -383,7 +383,7 @@ def choose_sources(paths: Sequence[Path]) -> list[Path]:
     if len(paths) < 2:
         raise SystemExit(
             "compare.py needs at least two VerseVAD corpus sources in the source folder.\n"
-            "Add Complete Audit ZIPs (or compatible standalone corpus_vad_metrics.csv files) and try again."
+            "Add two to five Corpus / Research Project Complete Audit ZIPs and try again."
         )
     print("\n# Select corpora")
     for idx, path in enumerate(paths, start=1):

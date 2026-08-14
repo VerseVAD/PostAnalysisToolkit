@@ -86,8 +86,9 @@ python scripts/correlation.py --help
 ## 6. Add a VerseVAD audit
 
 Generate a Complete Audit in VerseVAD and copy the ZIP into `source/`. Corpus
-tools use corpus audits; `single.py` uses a single-poem audit-schema-v2 ZIP.
-Do not unzip the audit unless a tool explicitly requests a standalone CSV.
+tools use Corpus / Research Project Complete Audits; `single.py` uses a Single
+Poem Complete Audit. Compare Poems and Current View ZIPs are not toolkit inputs.
+Do not unzip the audit. The tools validate and read the Complete Audit ZIP directly.
 
 The repository ignores `source/*`, so personal research files will not be
 included in an ordinary Git commit.

@@ -12,7 +12,7 @@ Designed to live beside ``versevad_reader.py`` inside::
             anomaly.py
             sensitivity.py
         source/
-            <VerseVAD Complete Audit ZIPs or standalone corpus_vad_metrics.csv>
+            <VerseVAD Corpus / Research Project Complete Audit ZIPs>
         exports/
 
 Run from the ``versevad_stats`` project folder with::
@@ -304,7 +304,7 @@ def select_source(paths: Sequence[Path]) -> Path:
     if not paths:
         raise SystemExit(
             "No VerseVAD corpus sources were found in the source folder.\n"
-            "Add a Complete Audit ZIP or standalone corpus_vad_metrics.csv and try again."
+            "Add a Corpus / Research Project Complete Audit ZIP and try again."
         )
     if len(paths) == 1:
         print("\nFound one corpus source:")

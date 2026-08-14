@@ -22,16 +22,27 @@ causation, importance, quality, or a definitive interpretation.
 
 | Script | Research purpose | Expected input | Main output area |
 |---|---|---|---|
-| `correlation.py` | Ask which selected measurements vary together across works | Corpus Complete Audit ZIP or `corpus_vad_metrics.csv` | `exports/correlation/` |
+| `correlation.py` | Ask which selected measurements vary together across works | Corpus Complete Audit ZIP | `exports/correlation/` |
 | `robustness.py` | Test whether one work disproportionately influences a selected correlation or corpus statistic | Corpus Complete Audit | `exports/robustness/` |
 | `sensitivity.py` | Examine how results move across scope, weighting, resource, and sample-alignment choices | Corpus Complete Audit | `exports/sensitivity/` |
-| `anomaly.py` | Explore single-metric extremes, directional combinations, or broad unusual profiles | Corpus Complete Audit; broad mode can use module metrics | `exports/anomalies/` |
+| `anomaly.py` | Explore single-metric extremes, directional combinations, or broad unusual profiles | Corpus Complete Audit; broad mode reads retained module evidence through the shared audit adapter | `exports/anomalies/` |
 | `compare.py` | Describe and compare 2–5 corpora using like-for-like methods and effect sizes | Two to five corpus Complete Audits | `exports/compare_corpus/` |
-| `single.py` | Turn one single-poem audit into a structured computational close-reading package | Single-poem audit-schema-v2 Complete Audit ZIP | `exports/single_poem/` |
+| `single.py` | Turn one single-poem audit into a structured computational close-reading package | Single Poem Complete Audit ZIP | `exports/single_poem/` |
 
 `versevad_reader.py` is the strict schema-validation and metric-extraction
 infrastructure used by corpus tools. It can also validate or inspect a corpus
 audit from the terminal, but it does not perform inferential analysis.
+
+## Input contract
+
+- `single.py` accepts a **Single Poem Complete Audit ZIP**.
+- Every other analytical utility accepts a **Corpus / Research Project Complete Audit ZIP**.
+- Compare Poems and Current View exports are intentionally rejected as statistical inputs.
+- For export schema 3.0, the shared reader uses
+  `03_MASTER_DATA/Master_Metrics.csv`; readable reports and focused tables are
+  presentation files, not statistical sources.
+- Legacy Single Poem and Corpus Complete Audits remain supported through shared
+  compatibility adapters where their required evidence is present.
 
 See [Tool Guide](docs/TOOLS.md) for the questions, choices, calculations,
 outputs, and interpretive cautions for each script.

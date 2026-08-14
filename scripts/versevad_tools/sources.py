@@ -6,8 +6,10 @@ import zipfile
 from pathlib import Path
 from typing import Sequence
 
+from versevad_tools.audit import AuditSourceError, require_audit
 
-def discover_files(directory: Path, suffixes: Sequence[str] = (".zip", ".csv")) -> list[Path]:
+
+def discover_files(directory: Path, suffixes: Sequence[str] = (".zip",)) -> list[Path]:
     allowed = {suffix.casefold() for suffix in suffixes}
     if not directory.exists():
         return []
@@ -20,19 +22,14 @@ def discover_files(directory: Path, suffixes: Sequence[str] = (".zip", ".csv")) 
 def discover_corpus_metric_sources(directory: Path, metrics_filename: str) -> list[Path]:
     candidates: list[Path] = []
     for path in discover_files(directory):
-        if path.suffix.casefold() == ".csv":
-            if path.name.casefold() == metrics_filename.casefold():
-                candidates.append(path)
-            continue
         try:
-            with zipfile.ZipFile(path, "r") as archive:
-                matches = [
-                    member for member in archive.namelist()
-                    if Path(member).name.casefold() == metrics_filename.casefold()
-                ]
-            if matches:
-                candidates.append(path)
-        except (OSError, zipfile.BadZipFile):
+            require_audit(
+                path,
+                expected_analysis_mode="corpus",
+                require_complete=True,
+            )
+            candidates.append(path)
+        except (OSError, zipfile.BadZipFile, AuditSourceError):
             continue
     return candidates
 

@@ -10,7 +10,7 @@ This script is designed to live beside ``versevad_reader.py`` inside:
             versevad_reader.py
             correlation.py
         source/
-            <VerseVAD Complete Audit ZIPs or corpus_vad_metrics.csv files>
+            <VerseVAD Corpus / Research Project Complete Audit ZIPs>
         exports/
 
 Run from the ``versevad_stats`` project folder with:

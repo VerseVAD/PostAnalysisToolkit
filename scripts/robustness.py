@@ -671,7 +671,7 @@ def _export_standalone(
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Interactive VerseVAD leave-one-out robustness analysis.")
-    parser.add_argument("--source", help="Optional VerseVAD Complete Audit ZIP or corpus_vad_metrics.csv path.")
+    parser.add_argument("--source", help="Optional VerseVAD Corpus / Research Project Complete Audit ZIP path.")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     return parser
 

@@ -6,8 +6,9 @@ A small, strict reader for VerseVAD corpus research exports.
 Purpose
 -------
 This module is the import layer for a private downstream VerseVAD research
-suite. It reads ONLY ``corpus_vad_metrics.csv`` (either directly or from a
-VerseVAD Complete Audit ZIP), validates the expected schema, and returns clean
+suite. It reads the canonical ``03_MASTER_DATA/Master_Metrics.csv`` from a
+VerseVAD Corpus Complete Audit ZIP, with an adapter for legacy
+``corpus_vad_metrics.csv`` exports, and returns clean
 poem-level metric tables for later tools such as correlation, anomaly,
 sensitivity, robustness, and corpus-comparison analyses.
 
@@ -89,10 +90,16 @@ except ImportError as exc:  # pragma: no cover - friendly CLI failure
     ) from exc
 
 from versevad_tools.core import configure_console_encoding
+from versevad_tools.audit import (
+    AuditSourceError,
+    LEGACY_CORPUS_BASENAME,
+    MASTER_METRICS_PATH,
+    require_audit,
+)
 
 
 __version__ = "0.1.0"
-METRICS_FILENAME = "corpus_vad_metrics.csv"
+METRICS_FILENAME = MASTER_METRICS_PATH
 
 # Baseline schema from the stable VerseVAD Complete Audit export.
 BASELINE_COLUMNS: tuple[str, ...] = (
@@ -176,7 +183,8 @@ class MetricSpec:
     ``lexicon_id``, ``metric``, ``analysis_view``, and ``weighting`` are always
     required. ``dimension`` and ``category`` may be omitted only when the
     remaining fields identify exactly one metric identity. If omission is
-    ambiguous, the reader refuses to guess.
+    ambiguous, the reader refuses to guess. For schema-v3 audits, ``metric``
+    may be either the canonical metric ID or its retained legacy identifier.
     """
 
     lexicon_id: str
@@ -229,6 +237,8 @@ class ValidationReport:
     extra_columns: tuple[str, ...]
     metadata_conflicts: int
     blank_text_ids: int
+    export_schema_version: str = "legacy"
+    analysis_mode: str = "corpus"
 
     @property
     def valid(self) -> bool:
@@ -247,6 +257,8 @@ class ValidationReport:
             f"Metrics member: {member}",
             f"Schema: {status}",
             f"Schema fingerprint: {self.schema_fingerprint}",
+            f"Export schema version: {self.export_schema_version}",
+            f"Analysis mode: {self.analysis_mode}",
             f"Rows: {self.row_count:,}",
             f"Unique works: {self.work_count:,}",
             f"Run IDs: {self.run_count:,}",
@@ -262,7 +274,7 @@ class ValidationReport:
 
 
 class VerseVADCorpusReader:
-    """Read and standardize VerseVAD ``corpus_vad_metrics.csv`` data."""
+    """Read a Corpus Complete Audit's canonical master data or legacy table."""
 
     def __init__(self, source: str | Path, *, chunksize: int = 75_000) -> None:
         self.source = Path(source).expanduser().resolve()
@@ -273,12 +285,12 @@ class VerseVADCorpusReader:
             raise FileNotFoundError(f"Source does not exist: {self.source}")
         if self.source.is_dir():
             raise VerseVADReaderError(
-                "The reader expects a Complete Audit ZIP or a standalone CSV, not a directory."
+                "The reader expects a Corpus / Research Project Complete Audit ZIP, not a directory."
             )
         suffix = self.source.suffix.lower()
         if suffix not in {".zip", ".csv"}:
             raise VerseVADReaderError(
-                f"Unsupported source type {suffix!r}. Expected .zip or .csv."
+                f"Unsupported source type {suffix!r}. Expected a Complete Audit ZIP."
             )
 
     @property
@@ -286,19 +298,30 @@ class VerseVADCorpusReader:
         return "zip" if self.source.suffix.lower() == ".zip" else "csv"
 
     def _find_archive_member(self, archive: zipfile.ZipFile) -> str:
+        try:
+            descriptor = require_audit(
+                self.source,
+                expected_analysis_mode="corpus",
+                require_complete=True,
+            )
+        except AuditSourceError as exc:
+            raise VerseVADSchemaError(str(exc)) from exc
+        if descriptor.master_member in archive.namelist():
+            return descriptor.master_member
         matches = [
             name
             for name in archive.namelist()
-            if not name.endswith("/") and Path(name).name == METRICS_FILENAME
+            if not name.endswith("/")
+            and Path(name).name.casefold() == LEGACY_CORPUS_BASENAME.casefold()
         ]
         if not matches:
             raise VerseVADSchemaError(
-                f"ZIP does not contain {METRICS_FILENAME!r}: {self.source}"
+                f"ZIP does not contain {MASTER_METRICS_PATH!r}: {self.source}"
             )
         if len(matches) > 1:
             pretty = "\n  - ".join(matches)
             raise VerseVADSchemaError(
-                f"ZIP contains multiple {METRICS_FILENAME!r} files; refusing to guess:\n"
+                f"ZIP contains multiple {LEGACY_CORPUS_BASENAME!r} files; refusing to guess:\n"
                 f"  - {pretty}"
             )
         return matches[0]
@@ -343,6 +366,20 @@ class VerseVADCorpusReader:
 
     def validate_schema(self, *, strict: bool = False) -> tuple[str, ...]:
         header = self.header()
+        if {"export_schema_version", "analysis_mode", "metric_id", "work_id", "value"} <= set(header):
+            required = {
+                "module_id", "resource_id", "lexical_scope", "weighting",
+                "analysis_level", "eligible_token_count", "matched_token_count",
+                "eligible_type_count", "matched_type_count", "token_coverage",
+                "type_coverage", "unit",
+            }
+            missing = sorted(required.difference(header))
+            if missing:
+                raise VerseVADSchemaError(
+                    "Canonical Master_Metrics.csv is missing required field(s):\n  - "
+                    + "\n  - ".join(missing)
+                )
+            return header
         missing = sorted(REQUIRED_COLUMNS.difference(header))
         if missing:
             raise VerseVADSchemaError(
@@ -366,17 +403,85 @@ class VerseVADCorpusReader:
         return header
 
     def _iter_chunks(self, *, usecols: Optional[Sequence[str]] = None) -> Iterator[pd.DataFrame]:
-        self.validate_schema(strict=False)
+        header = self.validate_schema(strict=False)
+        canonical = "export_schema_version" in header
+        requested = list(usecols) if usecols is not None else None
+        legacy_usecols = requested
+        if not canonical and requested and "metric_id" in requested:
+            legacy_usecols = [column for column in requested if column != "metric_id"]
         with self._open_binary() as raw:
             for chunk in pd.read_csv(
                 raw,
                 encoding="utf-8-sig",
                 dtype=str,
                 keep_default_na=False,
-                usecols=list(usecols) if usecols is not None else None,
+                usecols=None if canonical else legacy_usecols,
                 chunksize=self.chunksize,
             ):
+                if canonical:
+                    chunk = self._canonical_to_legacy(chunk)
+                    if usecols is not None:
+                        missing = [column for column in usecols if column not in chunk.columns]
+                        if missing:
+                            raise VerseVADSchemaError(
+                                "Canonical adapter could not provide required field(s): "
+                                + ", ".join(missing)
+                            )
+                        chunk = chunk.loc[:, list(usecols)]
+                elif requested and "metric_id" in requested:
+                    chunk["metric_id"] = chunk["metric"]
+                    chunk = chunk.loc[:, requested]
                 yield chunk
+
+    @staticmethod
+    def _canonical_to_legacy(frame: pd.DataFrame) -> pd.DataFrame:
+        """Expose schema-v3 work records through the toolkit's stable dataframe API."""
+
+        work = frame.loc[
+            frame["analysis_mode"].eq("corpus")
+            & frame["analysis_level"].eq("work")
+            & frame["work_id"].astype(str).str.strip().ne("")
+        ].copy()
+        weighting = work["weighting"].astype(str)
+        type_rows = weighting.eq("type")
+        matched = work["matched_token_count"].where(~type_rows, work["matched_type_count"])
+        eligible = work["eligible_token_count"].where(~type_rows, work["eligible_type_count"])
+        coverage = work["token_coverage"].where(~type_rows, work["type_coverage"])
+        scope = work["lexical_scope"].replace(
+            {"all_lexical": "all_matched", "stopword_excluded": "stopwords_excluded"}
+        )
+        legacy_metric = work.get("legacy_metric_id", work["metric_id"]).astype(str)
+        legacy_metric = legacy_metric.where(legacy_metric.str.strip().ne(""), work["metric_id"])
+        result = pd.DataFrame(
+            {
+                "run_id": work["analysis_id"],
+                "text_id": work["work_id"],
+                "text_version_id": work["work_id"],
+                "title": work["title"],
+                "author": work["author"],
+                "collection": work.get("collection", ""),
+                "date_label": work.get("date_label", ""),
+                "genre": work.get("genre", ""),
+                "lexicon_id": work["resource_id"],
+                "lexicon": work["resource_label"],
+                "value_kind": work["module_id"],
+                "metric": legacy_metric,
+                "metric_id": work["metric_id"],
+                "dimension": work.get("dimension", ""),
+                "category": work.get("category", ""),
+                "weighting": weighting,
+                "scale": work["unit"],
+                "denominator": work["denominator"],
+                "value": work["value"],
+                "observations": work["observation_count"],
+                "matched_tokens": matched,
+                "lexical_tokens": eligible,
+                "coverage": coverage,
+                "completed_at": "",
+                "analysis_view": scope,
+            }
+        )
+        return result.fillna("")
 
     def validate(self, *, strict_schema: bool = False) -> ValidationReport:
         """Run a streaming smoke test over the source.
@@ -387,7 +492,11 @@ class VerseVADCorpusReader:
         """
 
         header = self.validate_schema(strict=strict_schema)
-        extra_columns = tuple(col for col in header if col not in BASELINE_COLUMNS)
+        extra_columns = (
+            tuple(col for col in header if col not in BASELINE_COLUMNS)
+            if "export_schema_version" not in header
+            else tuple()
+        )
 
         usecols = [
             "run_id",
@@ -453,6 +562,19 @@ class VerseVADCorpusReader:
                 f"Unexpected weighting value(s): {sorted(unexpected_weights)}"
             )
 
+        schema_version = "legacy"
+        analysis_mode = "corpus"
+        if self.source_kind == "zip":
+            try:
+                descriptor = require_audit(
+                    self.source,
+                    expected_analysis_mode="corpus",
+                    require_complete=True,
+                )
+                schema_version = descriptor.schema_version
+                analysis_mode = descriptor.analysis_mode
+            except AuditSourceError as exc:
+                raise VerseVADSchemaError(str(exc)) from exc
         report = ValidationReport(
             source=str(self.source),
             source_kind=self.source_kind,
@@ -468,6 +590,8 @@ class VerseVADCorpusReader:
             extra_columns=extra_columns,
             metadata_conflicts=len(conflicting_text_ids),
             blank_text_ids=blank_text_ids,
+            export_schema_version=schema_version,
+            analysis_mode=analysis_mode,
         )
 
         if not report.valid:
@@ -489,6 +613,7 @@ class VerseVADCorpusReader:
             "lexicon_id",
             "lexicon",
             "value_kind",
+            "metric_id",
             "metric",
             "dimension",
             "category",
@@ -503,7 +628,7 @@ class VerseVADCorpusReader:
             return pd.DataFrame(columns=cols)
         result = pd.concat(pieces, ignore_index=True).drop_duplicates()
         return result.sort_values(
-            ["lexicon_id", "metric", "dimension", "category", "analysis_view", "weighting"],
+            ["lexicon_id", "metric_id", "dimension", "category", "analysis_view", "weighting"],
             kind="stable",
         ).reset_index(drop=True)
 
@@ -511,7 +636,10 @@ class VerseVADCorpusReader:
         """Return a compact catalog without repeating scope/weighting combinations."""
 
         catalog = self.catalog()
-        cols = ["lexicon_id", "lexicon", "value_kind", "metric", "dimension", "category", "scale"]
+        cols = [
+            "lexicon_id", "lexicon", "value_kind", "metric_id", "metric",
+            "dimension", "category", "scale",
+        ]
         if catalog.empty:
             return pd.DataFrame(columns=cols + ["profiles"])
 
@@ -524,7 +652,7 @@ class VerseVADCorpusReader:
             .reset_index(name="profiles")
         )
         return grouped.sort_values(
-            ["lexicon_id", "metric", "dimension", "category"], kind="stable"
+            ["lexicon_id", "metric_id", "dimension", "category"], kind="stable"
         ).reset_index(drop=True)
 
     @staticmethod
@@ -558,6 +686,7 @@ class VerseVADCorpusReader:
                     "lexicon_id",
                     "lexicon",
                     "value_kind",
+                    "metric_id",
                     "metric",
                     "dimension",
                     "category",
@@ -575,7 +704,7 @@ class VerseVADCorpusReader:
         for chunk in self._iter_chunks(usecols=usecols):
             mask = (
                 (chunk["lexicon_id"] == spec.lexicon_id)
-                & (chunk["metric"] == spec.metric)
+                & ((chunk["metric"] == spec.metric) | (chunk["metric_id"] == spec.metric))
                 & (chunk["analysis_view"] == spec.analysis_view)
                 & (chunk["weighting"] == spec.weighting)
             )
@@ -597,7 +726,7 @@ class VerseVADCorpusReader:
         result = pd.concat(matches, ignore_index=True)
 
         identities = result[
-            ["lexicon_id", "metric", "dimension", "category", "analysis_view", "weighting"]
+            ["lexicon_id", "metric_id", "dimension", "category", "analysis_view", "weighting"]
         ].drop_duplicates()
         if len(identities) != 1:
             choices = "\n".join(
@@ -798,12 +927,15 @@ def _print_catalog(reader: VerseVADCorpusReader) -> None:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Validate and read VerseVAD corpus_vad_metrics.csv from a Complete Audit ZIP "
-            "or standalone CSV."
+            "Validate and read the canonical master metrics from a VerseVAD "
+            "Corpus / Research Project Complete Audit ZIP."
         )
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
-    parser.add_argument("source", help="Path to VerseVAD Complete Audit .zip or corpus_vad_metrics.csv")
+    parser.add_argument(
+        "source",
+        help="Path to a VerseVAD Corpus / Research Project Complete Audit .zip",
+    )
     parser.add_argument("--strict-schema", action="store_true", help="Require the exact pinned baseline header")
     parser.add_argument("--catalog", action="store_true", help="Print available metric identities and profiles")
     parser.add_argument("--catalog-csv", help="Write the full metric/profile catalog to this CSV path")

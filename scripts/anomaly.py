@@ -11,7 +11,7 @@ Designed to live beside ``versevad_reader.py`` inside::
             correlation.py
             anomaly.py
         source/
-            <VerseVAD Complete Audit ZIPs or standalone corpus CSVs>
+            <VerseVAD Corpus / Research Project Complete Audit ZIPs>
         exports/
 
 Run from the ``versevad_stats`` project folder with::
@@ -126,6 +126,7 @@ except ImportError as exc:  # pragma: no cover
     ) from exc
 
 from versevad_tools.core import configure_console_encoding, project_root as shared_project_root
+from versevad_tools.audit import AuditSourceError, require_audit
 from versevad_tools.sources import choose_one_source, discover_files
 
 
@@ -414,6 +415,14 @@ def available_tables(source: Path) -> dict[str, str]:
     """Return supported table keys and their member/path labels."""
 
     if source.suffix.lower() == ".zip":
+        try:
+            require_audit(
+                source,
+                expected_analysis_mode="corpus",
+                require_complete=True,
+            )
+        except AuditSourceError as exc:
+            raise ValueError(str(exc)) from exc
         tables: dict[str, str] = {}
         vad = _zip_member_by_basename(source, VAD_METRICS_FILENAME)
         module = _zip_member_by_basename(source, MODULE_METRICS_FILENAME)
@@ -423,6 +432,8 @@ def available_tables(source: Path) -> dict[str, str]:
             tables["module"] = module
         return tables
 
+    # Retained only as a legacy programmatic adapter. Interactive discovery
+    # offers Complete Audit ZIPs exclusively.
     if source.suffix.lower() == ".csv":
         header = set(_csv_header(source))
         if set(getattr(versevad_reader, "REQUIRED_COLUMNS", ())).issubset(header):
@@ -757,8 +768,19 @@ class ModuleMetricsReader:
         if not self.source.exists():
             raise FileNotFoundError(self.source)
         if self.source.suffix.lower() not in {".zip", ".csv"}:
-            raise ValueError("ModuleMetricsReader accepts a Complete Audit ZIP or CSV.")
+            raise ValueError(
+                "ModuleMetricsReader requires a Complete Audit ZIP."
+            )
         self.source_kind = "zip" if self.source.suffix.lower() == ".zip" else "csv"
+        if self.source_kind == "zip":
+            try:
+                require_audit(
+                    self.source,
+                    expected_analysis_mode="corpus",
+                    require_complete=True,
+                )
+            except AuditSourceError as exc:
+                raise ValueError(str(exc)) from exc
         self.archive_member = (
             _zip_member_by_basename(self.source, MODULE_METRICS_FILENAME)
             if self.source_kind == "zip"
